@@ -61,6 +61,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
   },
   {
+    id: "diff-font-family",
+    title: "Diff font family",
+    to: "/settings/appearance",
+  },
+  {
     id: "project-grouping",
     title: "Project grouping",
     to: "/settings/general",

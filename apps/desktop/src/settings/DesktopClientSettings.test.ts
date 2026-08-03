@@ -17,6 +17,7 @@ const clientSettings: ClientSettings = {
   confirmThreadArchive: true,
   confirmThreadDelete: false,
   dismissedProviderUpdateNotificationKeys: [],
+  diffFontFamily: "JetBrains Mono",
   diffIgnoreWhitespace: true,
   environmentIdentificationMode: "artwork",
   favorites: [],

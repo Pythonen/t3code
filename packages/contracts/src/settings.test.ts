@@ -33,6 +33,15 @@ describe("ClientSettings word wrap", () => {
   });
 });
 
+describe("ClientSettings diff font family", () => {
+  it("defaults to the app monospace stack and trims custom families", () => {
+    expect(decodeClientSettings({}).diffFontFamily).toBe("");
+    expect(decodeClientSettingsPatch({ diffFontFamily: "  JetBrains Mono  " }).diffFontFamily).toBe(
+      "JetBrains Mono",
+    );
+  });
+});
+
 describe("ClientSettings glass opacity", () => {
   it("defaults to a readable translucent surface", () => {
     expect(decodeClientSettings({}).glassOpacity).toBe(80);

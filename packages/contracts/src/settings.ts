@@ -69,6 +69,7 @@ export const ClientSettingsSchema = Schema.Struct({
   dismissedProviderUpdateNotificationKeys: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  diffFontFamily: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   diffIgnoreWhitespace: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   environmentIdentificationMode: EnvironmentIdentificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE)),
@@ -677,6 +678,7 @@ export const ClientSettingsPatch = Schema.Struct({
   autoOpenPlanSidebar: Schema.optionalKey(Schema.Boolean),
   confirmThreadArchive: Schema.optionalKey(Schema.Boolean),
   confirmThreadDelete: Schema.optionalKey(Schema.Boolean),
+  diffFontFamily: Schema.optionalKey(TrimmedString),
   diffIgnoreWhitespace: Schema.optionalKey(Schema.Boolean),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),

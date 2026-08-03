@@ -586,6 +586,9 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Project Grouping"]
         : []),
       ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
+      ...(settings.diffFontFamily !== DEFAULT_UNIFIED_SETTINGS.diffFontFamily
+        ? ["Diff font family"]
+        : []),
       ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
         ? ["Diff whitespace changes"]
         : []),
@@ -627,6 +630,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.addProjectBaseDirectory,
       settings.defaultThreadEnvMode,
       settings.newWorktreesStartFromOrigin,
+      settings.diffFontFamily,
       settings.diffIgnoreWhitespace,
       settings.environmentIdentificationMode,
       settings.glassOpacity,
@@ -654,6 +658,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     updateSettings({
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
+      diffFontFamily: DEFAULT_UNIFIED_SETTINGS.diffFontFamily,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
@@ -1106,6 +1111,32 @@ export function AppearanceSettingsPanel() {
               checked={settings.wordWrap}
               onCheckedChange={(checked) => updateSettings({ wordWrap: Boolean(checked) })}
               aria-label="Wrap code, tables, diffs, and file previews by default"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("diff-font-family")}
+          description="Use a locally installed font for code in the diff viewer."
+          resetAction={
+            settings.diffFontFamily !== DEFAULT_UNIFIED_SETTINGS.diffFontFamily ? (
+              <SettingResetButton
+                label="diff font family"
+                onClick={() =>
+                  updateSettings({ diffFontFamily: DEFAULT_UNIFIED_SETTINGS.diffFontFamily })
+                }
+              />
+            ) : null
+          }
+          control={
+            <DraftInput
+              aria-label="Diff font family"
+              className="w-full sm:w-52"
+              placeholder="System monospace"
+              value={settings.diffFontFamily}
+              onCommit={(diffFontFamily) =>
+                updateSettings({ diffFontFamily: diffFontFamily.trim() })
+              }
             />
           }
         />
