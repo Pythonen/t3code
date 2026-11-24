@@ -501,6 +501,7 @@ export const WS_METHODS = {
   projectsReadFile: "projects.readFile",
   projectsSearchContents: "projects.searchContents",
   codeDefinition: "code.definition",
+  codeReferences: "code.references",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
   projectsMutate: "projects.mutate",
@@ -1667,6 +1668,12 @@ const WsCodeDefinitionRpc = Rpc.make(WS_METHODS.codeDefinition, {
   error: Schema.Union([CodeDefinitionError, EnvironmentAuthorizationError]),
 });
 
+const WsCodeReferencesRpc = Rpc.make(WS_METHODS.codeReferences, {
+  payload: CodeDefinitionInput,
+  success: CodeDefinitionResult,
+  error: Schema.Union([CodeDefinitionError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsListEntriesRpc = Rpc.make(WS_METHODS.projectsListEntries, {
   payload: ProjectListEntriesInput,
   success: ProjectListEntriesResult,
@@ -2667,6 +2674,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsReadFileRpc,
   WsProjectsSearchContentsRpc,
   WsCodeDefinitionRpc,
+  WsCodeReferencesRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsEnsureScratchRpc,
   WsProjectsCreateNewRpc,

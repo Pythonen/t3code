@@ -13050,5 +13050,8 @@
   "9c4c35b1c01686fe": "Running: {ports}",
   "d920383a072639ee": "Definitions of {name}",
   "55dde960188bdaa3": "Finding {name}…",
-  "46b3874bee739749": "No definition found for {name}"
+  "46b3874bee739749": "No definition found for {name}",
+  "420c59b8e1bacf13": "References to {name} ({count})",
+  "20917eb8a21244be": "No references found for {name}",
+  "f6e9581cba3467fa": "Indexing…"
 }

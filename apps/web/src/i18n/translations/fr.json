@@ -13042,5 +13042,8 @@
   "9c4c35b1c01686fe": "En cours : {ports}",
   "d920383a072639ee": "Définitions de {name}",
   "55dde960188bdaa3": "Recherche de {name}…",
-  "46b3874bee739749": "Aucune définition trouvée pour {name}"
+  "46b3874bee739749": "Aucune définition trouvée pour {name}",
+  "420c59b8e1bacf13": "Références à {name} ({count})",
+  "20917eb8a21244be": "Aucune référence à {name} trouvée",
+  "f6e9581cba3467fa": "Indexation…"
 }

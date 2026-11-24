@@ -13049,5 +13049,8 @@
   "9c4c35b1c01686fe": "Körs: {ports}",
   "d920383a072639ee": "Definitioner av {name}",
   "55dde960188bdaa3": "Söker efter {name}…",
-  "46b3874bee739749": "Ingen definition hittades för {name}"
+  "46b3874bee739749": "Ingen definition hittades för {name}",
+  "420c59b8e1bacf13": "Referenser till {name} ({count})",
+  "20917eb8a21244be": "Inga referenser till {name} hittades",
+  "f6e9581cba3467fa": "Indexerar…"
 }

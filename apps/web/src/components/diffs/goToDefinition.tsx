@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { isMacPlatform } from "~/lib/utils";
 import { useRightPanelStore } from "~/rightPanelStore";
-import { codeDefinition, projectContentSearch } from "~/state/projects";
+import { codeDefinition, codeReferences, projectContentSearch } from "~/state/projects";
 import { useEnvironmentQuery } from "~/state/query";
 
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
@@ -133,6 +133,7 @@ const isNavigationClick = (event: MouseEvent | PointerEvent) =>
   isMacPlatform(navigator.platform) ? event.metaKey : event.ctrlKey;
 
 interface DefinitionLookup {
+  readonly mode: "definition" | "references";
   readonly name: string;
   readonly sourcePath: string | null;
   /** 1-based line and 0-based column in the current file; null for removed diff lines. */
@@ -149,9 +150,22 @@ interface TokenEvent {
   readonly side?: "deletions" | "additions";
 }
 
+interface CodeLocation {
+  readonly path: string;
+  readonly lineNumber: number;
+  readonly lineContent: string;
+}
+
+const REFERENCES_SEARCH_LIMIT = 300;
+const INDEXING_REFRESH_MS = 3_000;
+const INDEXING_REFRESH_ATTEMPTS = 5;
+
+// The file panel opens workspace paths; a location outside it (a system library) only lists.
+const inWorkspace = (path: string) => !path.startsWith("/");
+
 /**
- * Cmd/Ctrl-click a name in a diff to open its definition in the file panel. Returns Pierre token
- * callbacks for the diff options and the picker to render beside the diff.
+ * Cmd/Ctrl-click a name in a diff or file to open its definition; Shift-Cmd/Ctrl-click peeks its
+ * references. Returns Pierre token callbacks for the view options and the panel to render beside it.
  */
 export function useGoToDefinition(input: {
   readonly threadRef: ScopedThreadRef | null;
@@ -183,6 +197,7 @@ export function useGoToDefinition(input: {
       event.preventDefault();
       const rect = token.tokenElement.getBoundingClientRect();
       setLookup({
+        mode: event.shiftKey ? "references" : "definition",
         name,
         sourcePath: sourcePathOf(context) ?? input.sourcePath ?? null,
         position:
@@ -195,31 +210,98 @@ export function useGoToDefinition(input: {
     },
   };
 
+  const panelProps =
+    lookup === null
+      ? null
+      : {
+          lookup,
+          threadRef,
+          environmentId,
+          cwd,
+          onClose: () => setLookup(null),
+        };
   return {
     tokenOptions,
     picker:
-      lookup === null ? null : (
-        <DefinitionPicker
-          key={`${lookup.name}:${lookup.x}:${lookup.y}`}
-          lookup={lookup}
-          threadRef={threadRef}
-          environmentId={environmentId}
-          cwd={cwd}
-          onClose={() => setLookup(null)}
-        />
+      panelProps === null ? null : panelProps.lookup.mode === "references" ? (
+        <ReferencesPeek key={`${lookup!.name}:${lookup!.x}:${lookup!.y}`} {...panelProps} />
+      ) : (
+        <DefinitionPicker key={`${lookup!.name}:${lookup!.x}:${lookup!.y}`} {...panelProps} />
       ),
   };
 }
 
-function DefinitionPicker(props: {
+interface PanelProps {
   readonly lookup: DefinitionLookup;
   readonly threadRef: ScopedThreadRef;
   readonly environmentId: EnvironmentId;
   readonly cwd: string;
   readonly onClose: () => void;
+}
+
+/** A floating panel at the clicked token that Escape and outside clicks dismiss. */
+function FloatingPanel(props: {
+  readonly lookup: DefinitionLookup;
+  readonly label: string;
+  readonly wide?: boolean;
+  readonly onClose: () => void;
+  readonly children: React.ReactNode;
 }) {
-  const gt = useGT();
   const containerRef = useRef<HTMLDivElement>(null);
+  const { onClose } = props;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Escape and outside clicks dismiss the floating panel
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) onClose();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, [onClose]);
+  return (
+    <div
+      ref={containerRef}
+      role="dialog"
+      aria-label={props.label}
+      className={`fixed z-50 overflow-y-auto rounded-md border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg ${
+        props.wide ? "max-h-[60vh] w-[min(44rem,90vw)]" : "max-h-80 w-[min(36rem,90vw)]"
+      }`}
+      style={{ left: props.lookup.x, top: props.lookup.y + 4 }}
+    >
+      {props.children}
+    </div>
+  );
+}
+
+function LocationButton(props: {
+  readonly location: CodeLocation;
+  readonly showPath: boolean;
+  readonly onOpen: (location: CodeLocation) => void;
+}) {
+  const { location } = props;
+  return (
+    <button
+      type="button"
+      className="flex w-full items-baseline gap-2 rounded px-2 py-1 text-left enabled:hover:bg-accent disabled:opacity-60"
+      disabled={!inWorkspace(location.path)}
+      onClick={() => props.onOpen(location)}
+    >
+      <span className="shrink-0 font-mono text-xs text-muted-foreground">
+        {props.showPath ? `${location.path}:${location.lineNumber}` : location.lineNumber}
+      </span>
+      <span className="min-w-0 truncate font-mono text-xs">{location.lineContent.trim()}</span>
+    </button>
+  );
+}
+
+function DefinitionPicker(props: PanelProps) {
+  const gt = useGT();
   const { lookup, threadRef, onClose } = props;
   // The language server answers first; text search covers unsupported files, edits since render,
   // removed lines, and servers that fail or find nothing.
@@ -253,7 +335,7 @@ function DefinitionPicker(props: {
       : null,
   );
   const declaration = definitionRegex(lookup.name);
-  const matches: ReadonlyArray<{ path: string; lineNumber: number; lineContent: string }> =
+  const matches: ReadonlyArray<CodeLocation> =
     lspLocations.length > 0
       ? lspLocations
       : rankDefinitions(
@@ -262,13 +344,11 @@ function DefinitionPicker(props: {
         );
   const isPending = lsp.isPending || (needsTextSearch && search.isPending);
   const error = needsTextSearch ? search.error : null;
-  // The file panel opens workspace paths; a definition outside it (a system library) only lists.
-  const inWorkspace = (path: string) => !path.startsWith("/");
   const onlyMatch =
     !isPending && matches.length === 1 && inWorkspace(matches[0]!.path) ? matches[0] : undefined;
 
-  const open = (path: string, line: number) => {
-    useRightPanelStore.getState().openFile(threadRef, path, line);
+  const open = (location: CodeLocation) => {
+    useRightPanelStore.getState().openFile(threadRef, location.path, location.lineNumber);
     onClose();
   };
 
@@ -279,30 +359,12 @@ function DefinitionPicker(props: {
     onClose();
   }, [onlyMatch, threadRef, onClose]);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Escape and outside clicks dismiss the floating picker
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) onClose();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("pointerdown", onPointerDown, true);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("pointerdown", onPointerDown, true);
-    };
-  }, [onClose]);
-
   if (onlyMatch !== undefined) return null;
   return (
-    <div
-      ref={containerRef}
-      role="dialog"
-      aria-label={gt("Definitions of {name}", { name: lookup.name })}
-      className="fixed z-50 max-h-80 w-[min(36rem,90vw)] overflow-y-auto rounded-md border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg"
-      style={{ left: lookup.x, top: lookup.y + 4 }}
+    <FloatingPanel
+      lookup={lookup}
+      label={gt("Definitions of {name}", { name: lookup.name })}
+      onClose={onClose}
     >
       {isPending ? (
         <p className="px-2 py-1.5 text-muted-foreground">
@@ -316,20 +378,127 @@ function DefinitionPicker(props: {
         </p>
       ) : (
         matches.map((match) => (
-          <button
-            type="button"
+          <LocationButton
             key={`${match.path}:${match.lineNumber}`}
-            className="flex w-full flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left enabled:hover:bg-accent disabled:opacity-60"
-            disabled={!inWorkspace(match.path)}
-            onClick={() => open(match.path, match.lineNumber)}
-          >
-            <span className="font-mono text-xs text-muted-foreground">
-              {match.path}:{match.lineNumber}
-            </span>
-            <span className="w-full truncate font-mono text-xs">{match.lineContent.trim()}</span>
-          </button>
+            location={match}
+            showPath
+            onOpen={open}
+          />
         ))
       )}
-    </div>
+    </FloatingPanel>
+  );
+}
+
+function ReferencesPeek(props: PanelProps) {
+  const gt = useGT();
+  const { lookup, threadRef, onClose } = props;
+  const [refreshes, setRefreshes] = useState(0);
+  const lsp = useEnvironmentQuery(
+    lookup.sourcePath === null || lookup.position === null
+      ? null
+      : codeReferences({
+          environmentId: props.environmentId,
+          input: {
+            cwd: props.cwd,
+            relativePath: lookup.sourcePath,
+            line: lookup.position.line,
+            character: lookup.position.character,
+            name: lookup.name,
+          },
+        }),
+  );
+  const lspLocations = lsp.data?.status === "ok" ? lsp.data.locations : [];
+  const indexing = lsp.data?.partial === true && refreshes < INDEXING_REFRESH_ATTEMPTS;
+  const needsTextSearch = !lsp.isPending && lspLocations.length === 0;
+  const search = useEnvironmentQuery(
+    needsTextSearch
+      ? projectContentSearch({
+          environmentId: props.environmentId,
+          input: {
+            cwd: props.cwd,
+            query: lookup.name,
+            limit: REFERENCES_SEARCH_LIMIT,
+            caseSensitive: true,
+            wholeWord: true,
+            useRegex: false,
+          },
+        })
+      : null,
+  );
+  const references: ReadonlyArray<CodeLocation> =
+    lspLocations.length > 0 ? lspLocations : (search.data?.matches ?? []);
+  const isPending = lsp.isPending || (needsTextSearch && search.isPending);
+  const error = needsTextSearch ? search.error : null;
+  const groups = new Map<string, CodeLocation[]>();
+  for (const reference of references) {
+    const group = groups.get(reference.path);
+    if (group) group.push(reference);
+    else groups.set(reference.path, [reference]);
+  }
+
+  const refreshLsp = lsp.refresh;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a language server still indexing is asked again until its answer is complete
+  useEffect(() => {
+    if (!indexing) return;
+    const timer = setTimeout(() => {
+      setRefreshes(refreshes + 1);
+      refreshLsp();
+    }, INDEXING_REFRESH_MS);
+    return () => clearTimeout(timer);
+  }, [indexing, refreshes, refreshLsp]);
+
+  const open = (location: CodeLocation) => {
+    useRightPanelStore.getState().openFile(threadRef, location.path, location.lineNumber);
+    onClose();
+  };
+
+  return (
+    <FloatingPanel
+      lookup={lookup}
+      wide
+      label={gt("References to {name} ({count})", {
+        name: lookup.name,
+        count: references.length,
+      })}
+      onClose={onClose}
+    >
+      {isPending && references.length === 0 ? (
+        <p className="px-2 py-1.5 text-muted-foreground">
+          {gt("Finding {name}…", { name: lookup.name })}
+        </p>
+      ) : error !== null ? (
+        <p className="px-2 py-1.5 text-destructive">{error}</p>
+      ) : references.length === 0 ? (
+        <p className="px-2 py-1.5 text-muted-foreground">
+          {gt("No references found for {name}", { name: lookup.name })}
+        </p>
+      ) : (
+        <>
+          <p className="flex items-baseline justify-between px-2 pt-1 pb-1.5 text-xs font-medium">
+            <span>
+              {gt("References to {name} ({count})", {
+                name: lookup.name,
+                count: references.length,
+              })}
+            </span>
+            {indexing ? <span className="text-muted-foreground">{gt("Indexing…")}</span> : null}
+          </p>
+          {[...groups].map(([path, items]) => (
+            <div key={path} className="pb-1">
+              <p className="truncate px-2 py-0.5 font-mono text-xs text-muted-foreground">{path}</p>
+              {items.map((item) => (
+                <LocationButton
+                  key={`${item.path}:${item.lineNumber}`}
+                  location={item}
+                  showPath={false}
+                  onOpen={open}
+                />
+              ))}
+            </div>
+          ))}
+        </>
+      )}
+    </FloatingPanel>
   );
 }

@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off globalTimers:off - a long-lived stdio JSON-RPC client; its framing and timers live outside Effect like the native spawner.
+// @effect-diagnostics nodeBuiltinImport:off globalTimers:off globalDate:off - a long-lived stdio JSON-RPC client; its framing and timers live outside Effect like the native spawner.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -10,6 +10,7 @@ import {
   type CodeDefinitionLocation,
   type CodeDefinitionResult,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -18,7 +19,10 @@ import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const IDLE_SHUTDOWN_MS = 10 * 60_000;
-const MAX_LOCATIONS = 50;
+const MAX_DEFINITIONS = 50;
+const MAX_REFERENCES = 300;
+// Pyright indexes the workspace after start; references before then miss other files.
+const INDEXING_GRACE_MS = 15_000;
 // The desktop backend can start with a minimal PATH; Homebrew and npm-global binaries live here.
 const EXTRA_PATH_DIRECTORIES = ["/opt/homebrew/bin", "/usr/local/bin"];
 
@@ -157,6 +161,7 @@ class LanguageServerConnection {
   private readonly documents = new Map<string, { version: number; mtimeMs: number }>();
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
   readonly ready: Promise<void>;
+  readonly startedAt = Date.now();
   exited = false;
 
   readonly spec: ServerSpec;
@@ -182,6 +187,7 @@ class LanguageServerConnection {
       capabilities: {
         textDocument: {
           definition: { linkSupport: true },
+          references: {},
           synchronization: { didSave: false },
         },
         workspace: { configuration: true, workspaceFolders: true },
@@ -193,7 +199,12 @@ class LanguageServerConnection {
     this.touch();
   }
 
-  async definition(absolutePath: string, line: number, character: number): Promise<JsonValue> {
+  async locate(
+    method: "textDocument/definition" | "textDocument/references",
+    absolutePath: string,
+    line: number,
+    character: number,
+  ): Promise<JsonValue> {
     await this.ready;
     this.touch();
     const uri = NodeURL.pathToFileURL(absolutePath).href;
@@ -221,9 +232,10 @@ class LanguageServerConnection {
         this.documents.set(uri, { version, mtimeMs: stat.mtimeMs });
       }
     }
-    return this.request("textDocument/definition", {
+    return this.request(method, {
       textDocument: { uri },
       position: { line, character },
+      ...(method === "textDocument/references" ? { context: { includeDeclaration: true } } : {}),
     });
   }
 
@@ -342,7 +354,11 @@ interface RawLocation {
   readonly targetSelectionRange?: { readonly start: { readonly line: number } };
 }
 
-function toLocations(workspaceRoot: string, raw: JsonValue): ReadonlyArray<CodeDefinitionLocation> {
+function toLocations(
+  workspaceRoot: string,
+  raw: JsonValue,
+  limit: number,
+): ReadonlyArray<CodeDefinitionLocation> {
   const list = (Array.isArray(raw) ? raw : raw ? [raw] : []) as ReadonlyArray<RawLocation>;
   const seen = new Set<string>();
   const locations: CodeDefinitionLocation[] = [];
@@ -371,7 +387,7 @@ function toLocations(workspaceRoot: string, raw: JsonValue): ReadonlyArray<CodeD
       lineNumber,
       lineContent: (lines[range.start.line] ?? "").slice(0, 400),
     });
-    if (locations.length >= MAX_LOCATIONS) break;
+    if (locations.length >= limit) break;
   }
   return locations;
 }
@@ -390,6 +406,9 @@ export class LanguageServers extends Context.Service<
   LanguageServers,
   {
     readonly definition: (
+      input: CodeDefinitionInput,
+    ) => Effect.Effect<CodeDefinitionResult, CodeDefinitionError>;
+    readonly references: (
       input: CodeDefinitionInput,
     ) => Effect.Effect<CodeDefinitionResult, CodeDefinitionError>;
   }
@@ -415,43 +434,57 @@ const make = Effect.gen(function* () {
     return connection;
   };
 
-  const definition = Effect.fn("LanguageServers.definition")(function* (
-    input: CodeDefinitionInput,
-  ) {
-    const toError = (message: string) => (cause: unknown) =>
-      new CodeDefinitionError({ message, cause });
-    const workspaceRoot = yield* workspacePaths
-      .normalizeWorkspaceRoot(input.cwd)
-      .pipe(Effect.mapError(toError("The workspace is not available.")));
-    const { absolutePath } = yield* workspacePaths
-      .resolveRelativePathWithinRoot({ workspaceRoot, relativePath: input.relativePath })
-      .pipe(Effect.mapError(toError("The file is outside the workspace.")));
-    const spec = resolveServerSpec(workspaceRoot, absolutePath);
-    if (spec === null)
-      return { status: "unsupported", locations: [] } satisfies CodeDefinitionResult;
-    const lineText = yield* Effect.try({
-      try: () => NodeFS.readFileSync(absolutePath, "utf8").split("\n")[input.line - 1] ?? "",
-      catch: toError("The file could not be read."),
+  const lookup = (kind: "definition" | "references") =>
+    Effect.fn(`LanguageServers.${kind}`)(function* (input: CodeDefinitionInput) {
+      const toError = (message: string) => (cause: unknown) =>
+        new CodeDefinitionError({ message, cause });
+      const workspaceRoot = yield* workspacePaths
+        .normalizeWorkspaceRoot(input.cwd)
+        .pipe(Effect.mapError(toError("The workspace is not available.")));
+      const { absolutePath } = yield* workspacePaths
+        .resolveRelativePathWithinRoot({ workspaceRoot, relativePath: input.relativePath })
+        .pipe(Effect.mapError(toError("The file is outside the workspace.")));
+      const spec = resolveServerSpec(workspaceRoot, absolutePath);
+      if (spec === null)
+        return { status: "unsupported", locations: [] } satisfies CodeDefinitionResult;
+      const lineText = yield* Effect.try({
+        try: () => NodeFS.readFileSync(absolutePath, "utf8").split("\n")[input.line - 1] ?? "",
+        catch: toError("The file could not be read."),
+      });
+      const character = locateName(lineText, input.character, input.name);
+      if (character === null)
+        return { status: "stale", locations: [] } satisfies CodeDefinitionResult;
+      const connection = connectionFor(spec);
+      const raw = yield* Effect.tryPromise({
+        try: () =>
+          connection.locate(
+            kind === "definition" ? "textDocument/definition" : "textDocument/references",
+            absolutePath,
+            input.line - 1,
+            character,
+          ),
+        catch: (cause) =>
+          new CodeDefinitionError({
+            message: cause instanceof Error ? cause.message : "The language server failed.",
+            cause,
+          }),
+      });
+      const now = yield* Clock.currentTimeMillis;
+      return {
+        status: "ok",
+        locations: toLocations(
+          workspaceRoot,
+          raw,
+          kind === "definition" ? MAX_DEFINITIONS : MAX_REFERENCES,
+        ),
+        server: spec.label,
+        ...(kind === "references" && now - connection.startedAt < INDEXING_GRACE_MS
+          ? { partial: true }
+          : {}),
+      } satisfies CodeDefinitionResult;
     });
-    const character = locateName(lineText, input.character, input.name);
-    if (character === null)
-      return { status: "stale", locations: [] } satisfies CodeDefinitionResult;
-    const raw = yield* Effect.tryPromise({
-      try: () => connectionFor(spec).definition(absolutePath, input.line - 1, character),
-      catch: (cause) =>
-        new CodeDefinitionError({
-          message: cause instanceof Error ? cause.message : "The language server failed.",
-          cause,
-        }),
-    });
-    return {
-      status: "ok",
-      locations: toLocations(workspaceRoot, raw),
-      server: spec.label,
-    } satisfies CodeDefinitionResult;
-  });
 
-  return LanguageServers.of({ definition });
+  return LanguageServers.of({ definition: lookup("definition"), references: lookup("references") });
 });
 
 export const layer = Layer.effect(LanguageServers, make);

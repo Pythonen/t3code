@@ -26,6 +26,12 @@ export const codeDefinition = createEnvironmentRpcQueryAtomFamily(connectionAtom
   staleTimeMs: 0,
   idleTtlMs: 0,
 });
+export const codeReferences = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+  label: "environment-data:code:references",
+  tag: WS_METHODS.codeReferences,
+  staleTimeMs: 0,
+  idleTtlMs: 0,
+});
 export const projectContentSearch = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
   label: "environment-data:projects:search-contents",
   tag: WS_METHODS.projectsSearchContents,

@@ -29,6 +29,8 @@ export const CodeDefinitionResult = Schema.Struct({
   status: Schema.Literals(["ok", "unsupported", "stale"]),
   locations: Schema.Array(CodeDefinitionLocation),
   server: Schema.optional(TrimmedNonEmptyString),
+  /** The language server is still indexing the workspace; asking again can find more. */
+  partial: Schema.optional(Schema.Boolean),
 });
 export type CodeDefinitionResult = typeof CodeDefinitionResult.Type;
 
