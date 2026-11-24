@@ -12,6 +12,8 @@ import { isMacPlatform } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { codeDefinition, codeReferences, projectContentSearch } from "~/state/projects";
+
+import { type CodeLocation, CodePeek, inWorkspace } from "./CodePeek";
 import { useEnvironmentQuery } from "~/state/query";
 
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
@@ -153,18 +155,9 @@ interface TokenEvent {
   readonly side?: "deletions" | "additions";
 }
 
-interface CodeLocation {
-  readonly path: string;
-  readonly lineNumber: number;
-  readonly lineContent: string;
-}
-
 const REFERENCES_SEARCH_LIMIT = 300;
 const INDEXING_REFRESH_MS = 3_000;
 const INDEXING_REFRESH_ATTEMPTS = 5;
-
-// The file panel opens workspace paths; a location outside it (a system library) only lists.
-const inWorkspace = (path: string) => !path.startsWith("/");
 
 /**
  * Cmd/Ctrl-click a name in a diff or file to open its definition; Shift-Cmd/Ctrl-click peeks its
@@ -288,67 +281,6 @@ interface PanelProps {
   readonly onClose: () => void;
 }
 
-/** A floating panel at the clicked token that Escape and outside clicks dismiss. */
-function FloatingPanel(props: {
-  readonly lookup: DefinitionLookup;
-  readonly label: string;
-  readonly wide?: boolean;
-  readonly onClose: () => void;
-  readonly children: React.ReactNode;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const { onClose } = props;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Escape and outside clicks dismiss the floating panel
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) onClose();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("pointerdown", onPointerDown, true);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("pointerdown", onPointerDown, true);
-    };
-  }, [onClose]);
-  return (
-    <div
-      ref={containerRef}
-      role="dialog"
-      aria-label={props.label}
-      className={`fixed z-50 overflow-y-auto rounded-md border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg ${
-        props.wide ? "max-h-[60vh] w-[min(44rem,90vw)]" : "max-h-80 w-[min(36rem,90vw)]"
-      }`}
-      style={{ left: props.lookup.x, top: props.lookup.y + 4 }}
-    >
-      {props.children}
-    </div>
-  );
-}
-
-function LocationButton(props: {
-  readonly location: CodeLocation;
-  readonly showPath: boolean;
-  readonly onOpen: (location: CodeLocation) => void;
-}) {
-  const { location } = props;
-  return (
-    <button
-      type="button"
-      className="flex w-full items-baseline gap-2 rounded px-2 py-1 text-left enabled:hover:bg-accent disabled:opacity-60"
-      disabled={!inWorkspace(location.path)}
-      onClick={() => props.onOpen(location)}
-    >
-      <span className="shrink-0 font-mono text-xs text-muted-foreground">
-        {props.showPath ? `${location.path}:${location.lineNumber}` : location.lineNumber}
-      </span>
-      <span className="min-w-0 truncate font-mono text-xs">{location.lineContent.trim()}</span>
-    </button>
-  );
-}
-
 function DefinitionPicker(props: PanelProps) {
   const gt = useGT();
   const { lookup, threadRef, onClose } = props;
@@ -410,32 +342,25 @@ function DefinitionPicker(props: PanelProps) {
 
   if (onlyMatch !== undefined) return null;
   return (
-    <FloatingPanel
-      lookup={lookup}
-      label={gt("Definitions of {name}", { name: lookup.name })}
+    <CodePeek
+      title={gt("Definitions of {name}", { name: lookup.name })}
+      name={lookup.name}
+      locations={matches}
+      status={
+        isPending
+          ? gt("Finding {name}…", { name: lookup.name })
+          : error !== null
+            ? error
+            : matches.length === 0
+              ? gt("No definition found for {name}", { name: lookup.name })
+              : null
+      }
+      anchor={lookup}
+      environmentId={props.environmentId}
+      cwd={props.cwd}
+      onOpen={open}
       onClose={onClose}
-    >
-      {isPending ? (
-        <p className="px-2 py-1.5 text-muted-foreground">
-          {gt("Finding {name}…", { name: lookup.name })}
-        </p>
-      ) : error !== null ? (
-        <p className="px-2 py-1.5 text-destructive">{error}</p>
-      ) : matches.length === 0 ? (
-        <p className="px-2 py-1.5 text-muted-foreground">
-          {gt("No definition found for {name}", { name: lookup.name })}
-        </p>
-      ) : (
-        matches.map((match) => (
-          <LocationButton
-            key={`${match.path}:${match.lineNumber}`}
-            location={match}
-            showPath
-            onOpen={open}
-          />
-        ))
-      )}
-    </FloatingPanel>
+    />
   );
 }
 
@@ -479,12 +404,6 @@ function ReferencesPeek(props: PanelProps) {
     lspLocations.length > 0 ? lspLocations : (search.data?.matches ?? []);
   const isPending = lsp.isPending || (needsTextSearch && search.isPending);
   const error = needsTextSearch ? search.error : null;
-  const groups = new Map<string, CodeLocation[]>();
-  for (const reference of references) {
-    const group = groups.get(reference.path);
-    if (group) group.push(reference);
-    else groups.set(reference.path, [reference]);
-  }
 
   const refreshLsp = lsp.refresh;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a language server still indexing is asked again until its answer is complete
@@ -503,51 +422,28 @@ function ReferencesPeek(props: PanelProps) {
   };
 
   return (
-    <FloatingPanel
-      lookup={lookup}
-      wide
-      label={gt("References to {name} ({count})", {
+    <CodePeek
+      title={gt("References to {name} ({count})", {
         name: lookup.name,
         count: references.length,
       })}
+      name={lookup.name}
+      locations={references}
+      status={
+        isPending && references.length === 0
+          ? gt("Finding {name}…", { name: lookup.name })
+          : error !== null
+            ? error
+            : references.length === 0
+              ? gt("No references found for {name}", { name: lookup.name })
+              : null
+      }
+      note={indexing ? gt("Indexing…") : null}
+      anchor={lookup}
+      environmentId={props.environmentId}
+      cwd={props.cwd}
+      onOpen={open}
       onClose={onClose}
-    >
-      {isPending && references.length === 0 ? (
-        <p className="px-2 py-1.5 text-muted-foreground">
-          {gt("Finding {name}…", { name: lookup.name })}
-        </p>
-      ) : error !== null ? (
-        <p className="px-2 py-1.5 text-destructive">{error}</p>
-      ) : references.length === 0 ? (
-        <p className="px-2 py-1.5 text-muted-foreground">
-          {gt("No references found for {name}", { name: lookup.name })}
-        </p>
-      ) : (
-        <>
-          <p className="flex items-baseline justify-between px-2 pt-1 pb-1.5 text-xs font-medium">
-            <span>
-              {gt("References to {name} ({count})", {
-                name: lookup.name,
-                count: references.length,
-              })}
-            </span>
-            {indexing ? <span className="text-muted-foreground">{gt("Indexing…")}</span> : null}
-          </p>
-          {[...groups].map(([path, items]) => (
-            <div key={path} className="pb-1">
-              <p className="truncate px-2 py-0.5 font-mono text-xs text-muted-foreground">{path}</p>
-              {items.map((item) => (
-                <LocationButton
-                  key={`${item.path}:${item.lineNumber}`}
-                  location={item}
-                  showPath={false}
-                  onOpen={open}
-                />
-              ))}
-            </div>
-          ))}
-        </>
-      )}
-    </FloatingPanel>
+    />
   );
 }
