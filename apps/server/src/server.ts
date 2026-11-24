@@ -831,7 +831,8 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
   Layer.provideMerge(
     Layer.mergeAll(
       layerProviderEventLoggers,
-      ModelManifest.layerModelCatalog.pipe(Layer.provideMerge(ModelManifest.layer)),
+      // Privacy fork: the bundled manifest only; it never refreshes from upstream's GitHub.
+      ModelManifest.layerBundled,
       ResetCreditCoordinator.layer,
       ProviderLatestVersions.layer,
       McpProviderSessions.layer,
@@ -1217,6 +1218,8 @@ const layerMakeServer = Layer.unwrap(
             if (!cleanupBeforeActivation) {
               yield* Effect.addFinalizer(() => releaseManagedTunnel);
             }
+            // Privacy fork: T3 Connect is removed, including tunnels stored by earlier builds.
+            if (!hasCloudPublicConfig) return;
             const server = yield* HttpServer.HttpServer;
             const address = server.address;
             if (typeof address === "string" || !("port" in address)) return;

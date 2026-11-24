@@ -288,9 +288,12 @@ export const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(ModelManifest, make);
-
 export const layerTest = Layer.suspend(() =>
+  layerModelCatalog.pipe(Layer.provideMerge(layerBundledOnly)),
+);
+
+/** Privacy fork: the bundled manifest, never refreshed over the network. */
+export const layerBundled = Layer.suspend(() =>
   layerModelCatalog.pipe(Layer.provideMerge(layerBundledOnly)),
 );
 
