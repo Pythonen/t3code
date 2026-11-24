@@ -48,7 +48,6 @@ import { deadlineAfter, deadlineStore, type ClockStore } from "@t3tools/client-r
 import { useDeadlinePassed } from "../hooks/useDeadline";
 import { legacyProjectCwdPreferenceKey } from "../uiStateStore";
 import { isElectron } from "../env";
-import { shouldShowThreadJumpHintsForModifiers } from "../keybindings";
 import { isTerminalFocused, subscribeToTerminalFocusChanges } from "../lib/terminalFocus";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isModelPickerOpen, subscribeToModelPickerVisibility } from "../modelPickerVisibility";
@@ -751,19 +750,13 @@ function subscribeToThreadJumpHintInputs(listener: () => void): () => void {
  * so a quick shortcut never flashes them, and hide as soon as it is released.
  * The snapshot is the visibility itself, so a quick shortcut never re-renders the caller.
  */
+// Fork: holding Cmd to go to a definition flashed these hints on every click, so they stay hidden;
+// Cmd+1-9 still jump to threads.
 export function useThreadJumpHintsVisible(
-  keybindings: ResolvedKeybindingsConfig,
-  routeThreadRef: ScopedThreadRef | null,
+  _keybindings: ResolvedKeybindingsConfig,
+  _routeThreadRef: ScopedThreadRef | null,
 ): boolean {
-  return React.useSyncExternalStore(
-    subscribeToThreadJumpHintInputs,
-    () =>
-      threadJumpModifierHold.getSnapshot() &&
-      shouldShowThreadJumpHintsForModifiers(shortcutModifierStore.getSnapshot(), keybindings, {
-        platform: navigator.platform,
-        context: threadShortcutContext(routeThreadRef),
-      }),
-  );
+  return React.useSyncExternalStore(subscribeToThreadJumpHintInputs, () => false);
 }
 
 export function resolveThreadLastVisitedAt(
