@@ -13047,5 +13047,8 @@
   "95435f0b59cb2193": "Audio preview",
   "9c01631a094b1009": "Thread: Open Local Server in Browser",
   "0a3312467402cfd5": "No web dev server is running in this thread.",
-  "9c4c35b1c01686fe": "Running: {ports}"
+  "9c4c35b1c01686fe": "Running: {ports}",
+  "d920383a072639ee": "Definitions of {name}",
+  "55dde960188bdaa3": "Finding {name}…",
+  "46b3874bee739749": "No definition found for {name}"
 }

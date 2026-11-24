@@ -13034,5 +13034,8 @@
   "95435f0b59cb2193": "Vista previa de audio",
   "9c01631a094b1009": "Hilo: Abrir servidor local en el navegador",
   "0a3312467402cfd5": "No hay ningún servidor web de desarrollo en ejecución en este hilo.",
-  "9c4c35b1c01686fe": "En ejecución: {ports}"
+  "9c4c35b1c01686fe": "En ejecución: {ports}",
+  "d920383a072639ee": "Definiciones de {name}",
+  "55dde960188bdaa3": "Buscando {name}…",
+  "46b3874bee739749": "No se encontró ninguna definición de {name}"
 }

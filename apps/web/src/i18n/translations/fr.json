@@ -13039,5 +13039,8 @@
   "95435f0b59cb2193": "Aperçu audio",
   "9c01631a094b1009": "Fil : Ouvrir le serveur local dans le navigateur",
   "0a3312467402cfd5": "Aucun serveur web de développement ne tourne dans ce fil.",
-  "9c4c35b1c01686fe": "En cours : {ports}"
+  "9c4c35b1c01686fe": "En cours : {ports}",
+  "d920383a072639ee": "Définitions de {name}",
+  "55dde960188bdaa3": "Recherche de {name}…",
+  "46b3874bee739749": "Aucune définition trouvée pour {name}"
 }

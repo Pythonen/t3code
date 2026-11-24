@@ -13039,5 +13039,8 @@
   "95435f0b59cb2193": "Prévia de áudio",
   "9c01631a094b1009": "Conversa: Abrir servidor local no navegador",
   "0a3312467402cfd5": "Nenhum servidor web de desenvolvimento está em execução nesta conversa.",
-  "9c4c35b1c01686fe": "Em execução: {ports}"
+  "9c4c35b1c01686fe": "Em execução: {ports}",
+  "d920383a072639ee": "Definições de {name}",
+  "55dde960188bdaa3": "Procurando {name}…",
+  "46b3874bee739749": "Nenhuma definição encontrada para {name}"
 }

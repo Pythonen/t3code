@@ -13046,5 +13046,8 @@
   "95435f0b59cb2193": "Ljudförhandsvisning",
   "9c01631a094b1009": "Tråd: Öppna lokal server i webbläsaren",
   "0a3312467402cfd5": "Ingen webbutvecklingsserver körs i den här tråden.",
-  "9c4c35b1c01686fe": "Körs: {ports}"
+  "9c4c35b1c01686fe": "Körs: {ports}",
+  "d920383a072639ee": "Definitioner av {name}",
+  "55dde960188bdaa3": "Söker efter {name}…",
+  "46b3874bee739749": "Ingen definition hittades för {name}"
 }

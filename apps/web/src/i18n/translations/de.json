@@ -13039,5 +13039,8 @@
   "95435f0b59cb2193": "Audiovorschau",
   "9c01631a094b1009": "Thread: Lokalen Server im Browser öffnen",
   "0a3312467402cfd5": "In diesem Thread läuft kein Web-Dev-Server.",
-  "9c4c35b1c01686fe": "Läuft: {ports}"
+  "9c4c35b1c01686fe": "Läuft: {ports}",
+  "d920383a072639ee": "Definitionen von {name}",
+  "55dde960188bdaa3": "{name} wird gesucht…",
+  "46b3874bee739749": "Keine Definition für {name} gefunden"
 }

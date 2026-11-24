@@ -93,6 +93,7 @@ import { useEnvironmentScope } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
+import { useGoToDefinition } from "../diffs/goToDefinition";
 import { AttachmentFilePreview } from "./AttachmentFilePreview";
 import { AudioPreview } from "./AudioPreview";
 import { BrowserDocumentFrame, isPdfPreviewFile } from "./BrowserDocumentFrame";
@@ -875,6 +876,7 @@ function editableFileContents(
 
 interface EditableFileSurfaceProps {
   environmentId: EnvironmentId;
+  threadRef: ScopedThreadRef;
   projectId?: ProjectId | undefined;
   cwd: string;
   relativePath: string;
@@ -895,6 +897,7 @@ interface FileSelectionOverride {
 
 function EditableFileSurface({
   environmentId,
+  threadRef,
   projectId,
   cwd,
   relativePath,
@@ -926,6 +929,13 @@ function EditableFileSurface({
   const surfaceRef = useRef<HTMLDivElement>(null);
   const selectionFrameRef = useRef<number | null>(null);
   const saveTarget = { environmentId, cwd, relativePath };
+  const goToDefinition = useGoToDefinition({
+    threadRef,
+    environmentId,
+    cwd,
+    sourcePath: relativePath,
+    enabled: true,
+  });
   useFileSaveSession(saveTarget, onPendingChange);
   // Retain file identity for echoed editor changes; only external changes replace the editor's draft.
   const [externalFile, setExternalFile] = useState(() =>
@@ -1127,6 +1137,7 @@ function EditableFileSurface({
               themeType: resolvedTheme,
               unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
               onPostRender: handlePostRender,
+              ...goToDefinition.tokenOptions,
             }}
             selectedLines={selectedRange}
             lineAnnotations={lineAnnotations}
@@ -1164,6 +1175,7 @@ function EditableFileSurface({
             className="min-h-full"
           />
         </Virtualizer>
+        {goToDefinition.picker}
       </div>
     </EditProvider>
   );
@@ -1911,6 +1923,7 @@ export default function FilePreviewPanel({
                 <EditableFileSurface
                   key={`${relativePath}:${resolvedTheme}`}
                   environmentId={environmentId}
+                  threadRef={threadRef}
                   projectId={projectId}
                   cwd={cwd}
                   relativePath={relativePath}

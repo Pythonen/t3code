@@ -131,6 +131,7 @@ import {
   type TurnDiffSection,
 } from "@t3tools/client-runtime/state/thread-repositories";
 import { useOpenLink } from "../browser/useOpenLink";
+import { useGoToDefinition } from "./diffs/goToDefinition";
 
 type DiffThemeType = "light" | "dark";
 const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
@@ -287,6 +288,12 @@ export default function DiffPanel({
       : null,
   );
   const activeCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
+  const goToDefinition = useGoToDefinition({
+    threadRef: routeThreadRef ?? null,
+    environmentId: activeThread?.environmentId ?? null,
+    cwd: activeCwd ?? null,
+    enabled: canReadFiles,
+  });
   const serverConfig = useAtomValue(
     serverEnvironment.configValueAtom(activeThread?.environmentId ?? null),
   );
@@ -1774,8 +1781,10 @@ export default function DiffPanel({
                       stickyHeaders: true,
                       onPostRender: flushCodeView,
                       ...(currentLoadDiffFiles ? { loadDiffFiles } : {}),
+                      ...goToDefinition.tokenOptions,
                     }}
                   />
+                  {goToDefinition.picker}
                 </div>
                 {fileTreeOpen ? (
                   <FileExplorerPane
