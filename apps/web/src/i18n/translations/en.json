@@ -13053,5 +13053,7 @@
   "46b3874bee739749": "No definition found for {name}",
   "420c59b8e1bacf13": "References to {name} ({count})",
   "20917eb8a21244be": "No references found for {name}",
-  "f6e9581cba3467fa": "Indexing…"
+  "f6e9581cba3467fa": "Indexing…",
+  "49a164e0e78f6e2e": "Go to Definition",
+  "36850dbab31cb4d9": "Find All References"
 }

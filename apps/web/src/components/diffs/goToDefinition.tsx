@@ -6,7 +6,10 @@ import {
 import { useGT } from "gt-react";
 import { useEffect, useRef, useState } from "react";
 
+import { contextMenuSourceOf } from "~/contextMenuSource";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { isMacPlatform } from "~/lib/utils";
+import { readLocalApi } from "~/localApi";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { codeDefinition, codeReferences, projectContentSearch } from "~/state/projects";
 import { useEnvironmentQuery } from "~/state/query";
@@ -175,29 +178,19 @@ export function useGoToDefinition(input: {
   readonly sourcePath?: string | null;
   readonly enabled: boolean;
 }) {
+  const gt = useGT();
   const [lookup, setLookup] = useState<DefinitionLookup | null>(null);
+  const hoveredRef = useRef<{ readonly token: TokenEvent; readonly context: unknown } | null>(null);
   const { threadRef, environmentId, cwd } = input;
-  if (!input.enabled || threadRef === null || environmentId === null || cwd === null) {
-    return { tokenOptions: {}, picker: null };
-  }
+  const enabled = input.enabled && threadRef !== null && environmentId !== null && cwd !== null;
 
-  const tokenOptions = {
-    onTokenEnter: (token: TokenEvent, event: PointerEvent) => {
-      if (!isNavigationClick(event) || definitionTarget(token.tokenText) === null) return;
-      token.tokenElement.style.textDecoration = "underline";
-      token.tokenElement.style.cursor = "pointer";
-    },
-    onTokenLeave: (token: TokenEvent) => {
-      token.tokenElement.style.removeProperty("text-decoration");
-      token.tokenElement.style.removeProperty("cursor");
-    },
-    onTokenClick: (token: TokenEvent, event: MouseEvent, context?: unknown) => {
+  const startLookup = useStableCallback(
+    (mode: DefinitionLookup["mode"], token: TokenEvent, context: unknown) => {
       const name = definitionTarget(token.tokenText);
-      if (!isNavigationClick(event) || name === null) return;
-      event.preventDefault();
+      if (name === null) return;
       const rect = token.tokenElement.getBoundingClientRect();
       setLookup({
-        mode: event.shiftKey ? "references" : "definition",
+        mode,
         name,
         sourcePath: sourcePathOf(context) ?? input.sourcePath ?? null,
         position:
@@ -207,6 +200,62 @@ export function useGoToDefinition(input: {
         x: rect.left,
         y: rect.bottom,
       });
+    },
+  );
+
+  // Right-clicking a name offers the same lookups; anywhere else, or with a selection to copy,
+  // the usual menu stays.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens for context menus on the token under the pointer
+  useEffect(() => {
+    if (!enabled) return;
+    const onContextMenu = (event: MouseEvent) => {
+      const hovered = hoveredRef.current;
+      const api = readLocalApi();
+      if (hovered === null || api === undefined || api === null) return;
+      if (definitionTarget(hovered.token.tokenText) === null) return;
+      if (!event.composedPath().includes(hovered.token.tokenElement)) return;
+      if ((window.getSelection()?.toString() ?? "").length > 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void api.contextMenu
+        .show(
+          [
+            { id: "definition", label: gt("Go to Definition") },
+            { id: "references", label: gt("Find All References") },
+          ],
+          { x: event.clientX, y: event.clientY },
+          contextMenuSourceOf(event),
+        )
+        .then((action) => {
+          if (action === "definition" || action === "references") {
+            startLookup(action, hovered.token, hovered.context);
+          }
+        });
+    };
+    window.addEventListener("contextmenu", onContextMenu, true);
+    return () => window.removeEventListener("contextmenu", onContextMenu, true);
+  }, [enabled, gt, startLookup]);
+
+  if (!enabled) {
+    return { tokenOptions: {}, picker: null };
+  }
+
+  const tokenOptions = {
+    onTokenEnter: (token: TokenEvent, event: PointerEvent, context?: unknown) => {
+      hoveredRef.current = { token, context };
+      if (!isNavigationClick(event) || definitionTarget(token.tokenText) === null) return;
+      token.tokenElement.style.textDecoration = "underline";
+      token.tokenElement.style.cursor = "pointer";
+    },
+    onTokenLeave: (token: TokenEvent) => {
+      if (hoveredRef.current?.token.tokenElement === token.tokenElement) hoveredRef.current = null;
+      token.tokenElement.style.removeProperty("text-decoration");
+      token.tokenElement.style.removeProperty("cursor");
+    },
+    onTokenClick: (token: TokenEvent, event: MouseEvent, context?: unknown) => {
+      if (!isNavigationClick(event) || definitionTarget(token.tokenText) === null) return;
+      event.preventDefault();
+      startLookup(event.shiftKey ? "references" : "definition", token, context);
     },
   };
 

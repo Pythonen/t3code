@@ -13045,5 +13045,7 @@
   "46b3874bee739749": "Nenhuma definição encontrada para {name}",
   "420c59b8e1bacf13": "Referências a {name} ({count})",
   "20917eb8a21244be": "Nenhuma referência a {name} encontrada",
-  "f6e9581cba3467fa": "Indexando…"
+  "f6e9581cba3467fa": "Indexando…",
+  "49a164e0e78f6e2e": "Ir para definição",
+  "36850dbab31cb4d9": "Localizar todas as referências"
 }
