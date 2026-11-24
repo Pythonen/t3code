@@ -12,16 +12,16 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 
 const WEB_RUNTIME_PROCESS = /^(node|bun|deno|vite|next-server)$/i;
 
-/** The thread's web app: a JavaScript dev server first (not its API), then the lowest port. */
+/** The thread's web app: its JavaScript dev server with the lowest port, never its API. */
 function pickThreadWebServer(
   servers: ReadonlyArray<DiscoveredLocalServer>,
 ): DiscoveredLocalServer | null {
-  const isWeb = (server: DiscoveredLocalServer) =>
-    server.processName !== null && WEB_RUNTIME_PROCESS.test(server.processName);
   return (
-    servers.toSorted(
-      (left, right) => Number(isWeb(right)) - Number(isWeb(left)) || left.port - right.port,
-    )[0] ?? null
+    servers
+      .filter(
+        (server) => server.processName !== null && WEB_RUNTIME_PROCESS.test(server.processName),
+      )
+      .toSorted((left, right) => left.port - right.port)[0] ?? null
   );
 }
 
@@ -42,10 +42,12 @@ export function useOpenThreadServerShortcut(input: {
     event.preventDefault();
     const server = pickThreadWebServer(servers);
     if (server === null) {
+      const others = servers.map((candidate) => `:${candidate.port}`).join(", ");
       toastManager.add(
         stackedThreadToast({
           type: "info",
-          title: m(msg("No local server is running in this thread.")),
+          title: m(msg("No web dev server is running in this thread.")),
+          ...(others === "" ? {} : { description: m(msg("Running: {ports}", { ports: others })) }),
         }),
       );
       return;

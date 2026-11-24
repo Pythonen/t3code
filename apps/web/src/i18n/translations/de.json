@@ -13037,6 +13037,7 @@
   "0eceb5780908eb6c": "Vorlesen",
   "3ee98da81538c6de": "Die Vertonung konnte nicht abgespielt werden.",
   "95435f0b59cb2193": "Audiovorschau",
-  "262e37194f78b0ac": "In diesem Thread läuft kein lokaler Server.",
-  "9c01631a094b1009": "Thread: Lokalen Server im Browser öffnen"
+  "9c01631a094b1009": "Thread: Lokalen Server im Browser öffnen",
+  "0a3312467402cfd5": "In diesem Thread läuft kein Web-Dev-Server.",
+  "9c4c35b1c01686fe": "Läuft: {ports}"
 }
