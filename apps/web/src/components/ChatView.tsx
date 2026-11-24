@@ -330,6 +330,7 @@ import { useOpenSurfaceInMainView } from "../hooks/useOpenSurfaceInMainView";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
 import { useOpenFavoriteEditorShortcut } from "./chat/OpenInPickerShortcut";
+import { useOpenThreadServerShortcut } from "./chat/useOpenThreadServerShortcut";
 import {
   PanelLayoutControls,
   type PanelLayoutControlsProps,
@@ -1827,6 +1828,11 @@ export default function ChatView(props: ChatViewProps) {
     keybindings,
     availableEditors,
     openInCwd: gitCwd,
+  });
+  useOpenThreadServerShortcut({
+    enabled: isServerThread && !backgroundThread,
+    environmentId: activeThread?.environmentId ?? null,
+    threadId: activeThreadId,
   });
   const manualCompactionProviderAvailable = hasAvailableCompactionProvider({
     providers: providerInstanceEntries,

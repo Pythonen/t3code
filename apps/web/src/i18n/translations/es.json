@@ -13031,5 +13031,7 @@
   "717c1c47a852a1a5": "Pausar narración",
   "0eceb5780908eb6c": "Leer en voz alta",
   "3ee98da81538c6de": "No se pudo reproducir la narración.",
-  "95435f0b59cb2193": "Vista previa de audio"
+  "95435f0b59cb2193": "Vista previa de audio",
+  "262e37194f78b0ac": "No hay ningún servidor local en ejecución en este hilo.",
+  "9c01631a094b1009": "Hilo: Abrir servidor local en el navegador"
 }
