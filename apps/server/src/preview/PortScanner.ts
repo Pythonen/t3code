@@ -941,10 +941,12 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
       }
     }
     // A server an agent started can outlive the agent, so listeners are read while the last scan
-    // still found one.
+    // still found one. Fork: an open terminal counts too, since a script that backgrounds its
+    // servers leaves them outside the terminal's process tree with only the thread env var.
     const agentsPossible =
       hostPlatform !== "win32" &&
       (runningAgents > 0 ||
+        state.terminalProcesses.size > 0 ||
         agentScanPending ||
         [...(yield* Ref.get(agentThreadsRef)).values()].some((threadId) => threadId !== null));
     if (terminalOwners.size === 0 && configuredUrls.length === 0 && !agentsPossible) {
