@@ -19,6 +19,13 @@ export const environmentProjects = createEnvironmentProjectAtoms({
 export const projectEnvironment = createProjectEnvironmentAtoms(connectionAtomRuntime, {
   projectAtom: environmentProjects.projectAtom,
 });
+// Fork: language-server go-to-definition; each click is a fresh position, so nothing is cached.
+export const codeDefinition = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+  label: "environment-data:code:definition",
+  tag: WS_METHODS.codeDefinition,
+  staleTimeMs: 0,
+  idleTtlMs: 0,
+});
 export const projectContentSearch = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
   label: "environment-data:projects:search-contents",
   tag: WS_METHODS.projectsSearchContents,

@@ -160,6 +160,7 @@ import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
+import * as LanguageServers from "./codeNavigation/LanguageServers.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFolders from "./workspace/WorkspaceFolders.ts";
 import * as LayoutCommandApprovalWrites from "./workspace/LayoutCommandApprovalWrites.ts";
@@ -917,6 +918,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(VcsProvisioningService.VcsProvisioningService)({}),
   Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
   Layer.mock(WorkspaceEntries.WorkspaceEntries)({}),
+  Layer.mock(LanguageServers.LanguageServers)({}),
   Layer.mock(WorkspaceFolders.WorkspaceFolders)({}),
   Layer.mock(TaskFolders.TaskFolders)({}),
   Layer.mock(LayoutCommandApprovalWrites.LayoutCommandApprovalWrites)({}),

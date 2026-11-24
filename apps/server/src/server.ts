@@ -142,6 +142,7 @@ import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
 import * as T3ProjectFileLoader from "./project/T3ProjectFileLoader.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
+import * as LanguageServers from "./codeNavigation/LanguageServers.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFolders from "./workspace/WorkspaceFolders.ts";
 import * as LayoutCommandApprovals from "./workspace/LayoutCommandApprovals.ts";
@@ -576,6 +577,7 @@ const layerWorkspaceFileSystem = WorkspaceFileSystem.layer.pipe(
 const layerWorkspace = Layer.mergeAll(
   WorkspacePaths.layer,
   layerWorkspaceEntries,
+  LanguageServers.layer.pipe(Layer.provide(WorkspacePaths.layer)),
   layerWorkspaceFileSystem,
   WorkspaceFolders.layer.pipe(
     Layer.provide(Layer.merge(ProjectStore.layer, TaskFolderStore.layer)),

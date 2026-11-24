@@ -224,6 +224,7 @@ import {
 import { parseBase64DataUrl } from "./imageMime.ts";
 import { deletePendingAttachment, issueAttachmentUploadUrl } from "./assets/AttachmentUpload.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
+import * as LanguageServers from "./codeNavigation/LanguageServers.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFolders from "./workspace/WorkspaceFolders.ts";
 import * as LayoutCommandApprovalWrites from "./workspace/LayoutCommandApprovalWrites.ts";
@@ -1598,6 +1599,7 @@ export const layerWsRpc = (
       const peerClientPairing = yield* PeerClientPairing.PeerClientPairing;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+      const languageServers = yield* LanguageServers.LanguageServers;
       const workspaceFolders = yield* WorkspaceFolders.WorkspaceFolders;
       const taskFolders = yield* TaskFolders.TaskFolders;
       const layoutCommandApprovalWrites =
@@ -3121,6 +3123,7 @@ export const layerWsRpc = (
                 }),
             ),
           ),
+        [WS_METHODS.codeDefinition]: (input) => languageServers.definition(input),
         [WS_METHODS.projectsSearchContents]: (input) =>
           workspaceEntries.searchContents(input).pipe(
             Effect.mapError(

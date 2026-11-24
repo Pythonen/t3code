@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { isMacPlatform } from "~/lib/utils";
 import { useRightPanelStore } from "~/rightPanelStore";
-import { projectContentSearch } from "~/state/projects";
+import { codeDefinition, projectContentSearch } from "~/state/projects";
 import { useEnvironmentQuery } from "~/state/query";
 
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
@@ -135,6 +135,8 @@ const isNavigationClick = (event: MouseEvent | PointerEvent) =>
 interface DefinitionLookup {
   readonly name: string;
   readonly sourcePath: string | null;
+  /** 1-based line and 0-based column in the current file; null for removed diff lines. */
+  readonly position: { readonly line: number; readonly character: number } | null;
   readonly x: number;
   readonly y: number;
 }
@@ -142,6 +144,9 @@ interface DefinitionLookup {
 interface TokenEvent {
   readonly tokenText: string;
   readonly tokenElement: HTMLElement;
+  readonly lineNumber: number;
+  readonly lineCharStart: number;
+  readonly side?: "deletions" | "additions";
 }
 
 /**
@@ -180,6 +185,10 @@ export function useGoToDefinition(input: {
       setLookup({
         name,
         sourcePath: sourcePathOf(context) ?? input.sourcePath ?? null,
+        position:
+          token.side === "deletions"
+            ? null
+            : { line: token.lineNumber, character: token.lineCharStart },
         x: rect.left,
         y: rect.bottom,
       });
@@ -212,23 +221,51 @@ function DefinitionPicker(props: {
   const gt = useGT();
   const containerRef = useRef<HTMLDivElement>(null);
   const { lookup, threadRef, onClose } = props;
-  const result = useEnvironmentQuery(
-    projectContentSearch({
-      environmentId: props.environmentId,
-      input: {
-        cwd: props.cwd,
-        ...definitionQuery(lookup.name),
-        limit: DEFINITION_SEARCH_LIMIT,
-        caseSensitive: true,
-      },
-    }),
+  // The language server answers first; text search covers unsupported files, edits since render,
+  // removed lines, and servers that fail or find nothing.
+  const lsp = useEnvironmentQuery(
+    lookup.sourcePath === null || lookup.position === null
+      ? null
+      : codeDefinition({
+          environmentId: props.environmentId,
+          input: {
+            cwd: props.cwd,
+            relativePath: lookup.sourcePath,
+            line: lookup.position.line,
+            character: lookup.position.character,
+            name: lookup.name,
+          },
+        }),
+  );
+  const lspLocations = lsp.data?.status === "ok" ? lsp.data.locations : [];
+  const needsTextSearch = !lsp.isPending && lspLocations.length === 0;
+  const search = useEnvironmentQuery(
+    needsTextSearch
+      ? projectContentSearch({
+          environmentId: props.environmentId,
+          input: {
+            cwd: props.cwd,
+            ...definitionQuery(lookup.name),
+            limit: DEFINITION_SEARCH_LIMIT,
+            caseSensitive: true,
+          },
+        })
+      : null,
   );
   const declaration = definitionRegex(lookup.name);
-  const matches = rankDefinitions(
-    (result.data?.matches ?? []).filter((match) => declaration.test(match.lineContent)),
-    lookup.sourcePath,
-  );
-  const onlyMatch = !result.isPending && matches.length === 1 ? matches[0] : undefined;
+  const matches: ReadonlyArray<{ path: string; lineNumber: number; lineContent: string }> =
+    lspLocations.length > 0
+      ? lspLocations
+      : rankDefinitions(
+          (search.data?.matches ?? []).filter((match) => declaration.test(match.lineContent)),
+          lookup.sourcePath,
+        );
+  const isPending = lsp.isPending || (needsTextSearch && search.isPending);
+  const error = needsTextSearch ? search.error : null;
+  // The file panel opens workspace paths; a definition outside it (a system library) only lists.
+  const inWorkspace = (path: string) => !path.startsWith("/");
+  const onlyMatch =
+    !isPending && matches.length === 1 && inWorkspace(matches[0]!.path) ? matches[0] : undefined;
 
   const open = (path: string, line: number) => {
     useRightPanelStore.getState().openFile(threadRef, path, line);
@@ -267,12 +304,12 @@ function DefinitionPicker(props: {
       className="fixed z-50 max-h-80 w-[min(36rem,90vw)] overflow-y-auto rounded-md border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg"
       style={{ left: lookup.x, top: lookup.y + 4 }}
     >
-      {result.isPending ? (
+      {isPending ? (
         <p className="px-2 py-1.5 text-muted-foreground">
           {gt("Finding {name}…", { name: lookup.name })}
         </p>
-      ) : result.error !== null ? (
-        <p className="px-2 py-1.5 text-destructive">{result.error}</p>
+      ) : error !== null ? (
+        <p className="px-2 py-1.5 text-destructive">{error}</p>
       ) : matches.length === 0 ? (
         <p className="px-2 py-1.5 text-muted-foreground">
           {gt("No definition found for {name}", { name: lookup.name })}
@@ -282,7 +319,8 @@ function DefinitionPicker(props: {
           <button
             type="button"
             key={`${match.path}:${match.lineNumber}`}
-            className="flex w-full flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left hover:bg-accent"
+            className="flex w-full flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left enabled:hover:bg-accent disabled:opacity-60"
+            disabled={!inWorkspace(match.path)}
             onClick={() => open(match.path, match.lineNumber)}
           >
             <span className="font-mono text-xs text-muted-foreground">

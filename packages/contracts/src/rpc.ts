@@ -1,4 +1,9 @@
 import {
+  CodeDefinitionError,
+  CodeDefinitionInput,
+  CodeDefinitionResult,
+} from "./codeNavigation.ts";
+import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
@@ -495,6 +500,7 @@ export const WS_METHODS = {
   projectsListIgnoredFiles: "projects.listIgnoredFiles",
   projectsReadFile: "projects.readFile",
   projectsSearchContents: "projects.searchContents",
+  codeDefinition: "code.definition",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
   projectsMutate: "projects.mutate",
@@ -1655,6 +1661,12 @@ const WsProjectsSearchContentsRpc = Rpc.make(WS_METHODS.projectsSearchContents, 
   error: Schema.Union([ProjectSearchContentsError, EnvironmentAuthorizationError]),
 });
 
+const WsCodeDefinitionRpc = Rpc.make(WS_METHODS.codeDefinition, {
+  payload: CodeDefinitionInput,
+  success: CodeDefinitionResult,
+  error: Schema.Union([CodeDefinitionError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsListEntriesRpc = Rpc.make(WS_METHODS.projectsListEntries, {
   payload: ProjectListEntriesInput,
   success: ProjectListEntriesResult,
@@ -2654,6 +2666,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsListIgnoredFilesRpc,
   WsProjectsReadFileRpc,
   WsProjectsSearchContentsRpc,
+  WsCodeDefinitionRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsEnsureScratchRpc,
   WsProjectsCreateNewRpc,
