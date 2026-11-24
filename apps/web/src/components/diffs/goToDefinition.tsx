@@ -1,4 +1,8 @@
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  PROJECT_SEARCH_CONTENTS_QUERY_MAX_LENGTH,
+  type ScopedThreadRef,
+} from "@t3tools/contracts";
 import { useGT } from "gt-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -52,7 +56,7 @@ const KEYWORDS = new Set([
   "yield",
 ]);
 
-const DEFINITION_SEARCH_LIMIT = 50;
+const DEFINITION_SEARCH_LIMIT = 200;
 const DOCUMENT_EXTENSIONS = new Set(["md", "mdx", "rst", "txt"]);
 const LANGUAGE_FAMILY: Record<string, string> = {
   ts: "js",
@@ -97,14 +101,32 @@ function definitionTarget(tokenText: string): string | null {
 }
 
 /** Declarations of `name` across TS/JS, Python, Go, Rust and friends; text search, not an LSP. */
-function definitionPattern(name: string): string {
+function definitionRegex(name: string): RegExp {
   const n = name.replaceAll("$", "\\$");
-  return [
-    `\\b(?:function\\*?|class|interface|type|enum|def|struct|trait|fn|func|namespace|module|const|let|var)\\s+${n}\\b`,
-    `\\b${n}\\s*[:=]\\s*(?:async\\s*)?(?:function\\b|\\([^)]*\\)\\s*=>|[A-Za-z_$][\\w$]*\\s*=>)`,
-    `^\\s*(?:(?:public|private|protected|static|async|override|readonly|get|set)\\s+)*${n}\\s*\\([^)]*\\)\\s*(?::[^{]*)?\\{`,
-    `^${n}\\s*=[^=]`,
+  return new RegExp(
+    [
+      `\\b(?:function\\*?|class|interface|type|enum|def|struct|trait|fn|func|namespace|module|const|let|var)\\s+${n}\\b`,
+      `\\b${n}\\s*[:=]\\s*(?:async\\s*)?(?:function\\b|\\([^)]*\\)\\s*=>|[A-Za-z_$][\\w$]*\\s*=>)`,
+      `^\\s*(?:(?:public|private|protected|static|async|override|readonly|get|set)\\s+)*${n}\\s*\\([^)]*\\)\\s*(?::[^{]*)?\\{`,
+      `^${n}\\s*=[^=]`,
+    ].join("|"),
+  );
+}
+
+/**
+ * The server caps queries at PROJECT_SEARCH_CONTENTS_QUERY_MAX_LENGTH, so it gets a short superset
+ * of `definitionRegex` (or a whole-word search for long names) and the results are filtered here.
+ */
+function definitionQuery(name: string) {
+  const n = name.replaceAll("$", "\\$");
+  const query = [
+    `\\b(?:function|class|interface|type|enum|def|struct|trait|fn|func|const|let|var)\\s+${n}\\b`,
+    `^\\s*(?:\\w+\\s+)*${n}\\s*[=(]`,
+    `\\b${n}\\s*[:=]\\s*(?:async|function|\\(|\\w+\\s*=>)`,
   ].join("|");
+  return query.length <= PROJECT_SEARCH_CONTENTS_QUERY_MAX_LENGTH
+    ? { query, useRegex: true, wholeWord: false }
+    : { query: name, useRegex: false, wholeWord: true };
 }
 
 const isNavigationClick = (event: MouseEvent | PointerEvent) =>
@@ -195,15 +217,17 @@ function DefinitionPicker(props: {
       environmentId: props.environmentId,
       input: {
         cwd: props.cwd,
-        query: definitionPattern(lookup.name),
+        ...definitionQuery(lookup.name),
         limit: DEFINITION_SEARCH_LIMIT,
         caseSensitive: true,
-        wholeWord: false,
-        useRegex: true,
       },
     }),
   );
-  const matches = rankDefinitions(result.data?.matches ?? [], lookup.sourcePath);
+  const declaration = definitionRegex(lookup.name);
+  const matches = rankDefinitions(
+    (result.data?.matches ?? []).filter((match) => declaration.test(match.lineContent)),
+    lookup.sourcePath,
+  );
   const onlyMatch = !result.isPending && matches.length === 1 ? matches[0] : undefined;
 
   const open = (path: string, line: number) => {
