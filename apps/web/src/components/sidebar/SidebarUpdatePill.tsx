@@ -256,8 +256,10 @@ function SidebarUpdateControl() {
     isDownloading,
     showCheckIcon,
   });
+  // Fork: builds without an app update feed still check and update providers from this button.
+  const appCheckable = canCheckForUpdate(state);
   const idleTooltip =
-    !showUpdateDetails && !showCheckIcon
+    !showUpdateDetails && !showCheckIcon && appCheckable
       ? getDesktopUpdateIdleTooltip(state, updatesDenial, messages)
       : null;
   const tooltip = runsEverything
@@ -268,14 +270,15 @@ function SidebarUpdateControl() {
         : gt("Update available")
       : showCheckIcon
         ? gt("Checking for updates…")
-        : (idleTooltip?.title ?? gt("Check for updates"));
+        : (idleTooltip?.title ??
+          (appCheckable ? gt("Check for updates") : gt("Check for provider updates")));
   const disabled = showCheckIcon
     ? true
     : runsEverything
       ? false
       : showUpdateDetails
         ? isDesktopUpdateButtonDisabled(state)
-        : !canCheckForUpdate(state);
+        : false;
   const isInteractionDisabled = disabled || isActionPending || isRunningEverything;
   const showReleaseNotesPopover =
     !isRunningEverything && shouldUseSidebarUpdateReleaseNotesPopover(showUpdateDetails, state);
@@ -302,17 +305,17 @@ function SidebarUpdateControl() {
       return;
     }
 
-    if (!bridge || !state) return;
+    if ((action === "download" || action === "install") && (!bridge || !state)) return;
     setIsActionPending(true);
 
-    if (action === "download") {
+    if (action === "download" && bridge) {
       void downloadLocalUpdate(bridge, { notifyDownloaded: true }).finally(() =>
         setIsActionPending(false),
       );
       return;
     }
 
-    if (action === "install") {
+    if (action === "install" && bridge && state) {
       let confirmed = false;
       try {
         confirmed = await ensureLocalApi().dialogs.confirm(
@@ -342,8 +345,9 @@ function SidebarUpdateControl() {
       setIsCheckAnimationLatched(true);
       setCheckAnimationKey((key) => key + 1);
     }
-    const appCheck = bridge
-      .checkForUpdate()
+    const appCheck = (
+      bridge && appCheckable ? bridge.checkForUpdate() : Promise.resolve({ checked: true as const })
+    )
       .then((result) => {
         if (result.checked) return;
         toastManager.add(
