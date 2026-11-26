@@ -331,6 +331,7 @@ import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
 import { useOpenFavoriteEditorShortcut } from "./chat/OpenInPickerShortcut";
 import { useOpenThreadServerShortcut } from "./chat/useOpenThreadServerShortcut";
+import { type ExplainRequest, handleExplainRequests } from "./diffs/explainSelection";
 import {
   PanelLayoutControls,
   type PanelLayoutControlsProps,
@@ -3075,6 +3076,20 @@ export default function ChatView(props: ChatViewProps) {
   const openSideChatStable = useStableCallback(() => void sideChat.open());
   const openSurfaceInMainView = useOpenSurfaceInMainView(activeThreadRef);
   const sendSideChatStable = useStableCallback(sideChat.open);
+  // Fork: "Explain" on selected code in a diff or file opens a side chat about it, or fills the
+  // composer when side chats are unavailable.
+  const explainInChat = useStableCallback((request: ExplainRequest) => {
+    if (embedded || activeThreadKey === null || activeThreadRef === null) return false;
+    if (scopedThreadKey(request.threadRef) !== activeThreadKey) return false;
+    if (sideChat.available) {
+      void sideChat.open({ text: request.text, attachments: [], titleSeed: request.titleSeed });
+    } else {
+      useComposerDraftStore.getState().setPrompt(activeThreadRef, request.text);
+    }
+    return true;
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- receives Explain requests from code views in other panels
+  useEffect(() => handleExplainRequests(explainInChat), [explainInChat]);
   const { onConfirmRevertStable, onForkFromRunStable, onRevertTimelineTurnStable } =
     useTimelineRewind({
       environmentId,

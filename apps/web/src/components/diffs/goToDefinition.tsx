@@ -14,6 +14,7 @@ import { useRightPanelStore } from "~/rightPanelStore";
 import { codeDefinition, codeReferences, projectContentSearch } from "~/state/projects";
 
 import { type CodeLocation, CodePeek, inWorkspace } from "./CodePeek";
+import { explainPrompt, requestExplain } from "./explainSelection";
 import { useEnvironmentQuery } from "~/state/query";
 
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
@@ -134,6 +135,39 @@ function definitionQuery(name: string) {
     : { query: name, useRegex: false, wholeWord: true };
 }
 
+interface CodeSelection {
+  readonly text: string;
+  readonly lines: { readonly start: number; readonly end: number } | null;
+}
+
+/**
+ * The text selected in the code view the event came from. Pierre renders into a shadow root, so
+ * the root's own selection holds the nodes, and their rows carry the line numbers.
+ */
+function readCodeSelection(event: MouseEvent): CodeSelection | null {
+  const shadowRoot = event.composedPath().find((target) => target instanceof ShadowRoot) as
+    | (ShadowRoot & { getSelection?: () => Selection | null })
+    | undefined;
+  const selection = shadowRoot?.getSelection?.() ?? document.getSelection();
+  const text = selection?.toString() ?? "";
+  if (selection === null || text.trim().length === 0) return null;
+  const lineOf = (node: Node | null) => {
+    const element = node instanceof Element ? node : (node?.parentElement ?? null);
+    const value = element?.closest("[data-line]")?.getAttribute("data-line");
+    const line = value == null ? Number.NaN : Number.parseInt(value, 10);
+    return Number.isFinite(line) ? line : null;
+  };
+  const anchor = lineOf(selection.anchorNode);
+  const focus = lineOf(selection.focusNode);
+  return {
+    text,
+    lines:
+      anchor === null || focus === null
+        ? null
+        : { start: Math.min(anchor, focus), end: Math.max(anchor, focus) },
+  };
+}
+
 const isNavigationClick = (event: MouseEvent | PointerEvent) =>
   isMacPlatform(navigator.platform) ? event.metaKey : event.ctrlKey;
 
@@ -196,38 +230,57 @@ export function useGoToDefinition(input: {
     },
   );
 
-  // Right-clicking a name offers the same lookups; anywhere else, or with a selection to copy,
-  // the usual menu stays.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens for context menus on the token under the pointer
+  const explainSelection = useStableCallback((selection: CodeSelection, context: unknown) => {
+    if (threadRef === null) return;
+    const prompt = explainPrompt({
+      code: selection.text,
+      path: sourcePathOf(context) ?? input.sourcePath ?? null,
+      lines: selection.lines,
+    });
+    requestExplain({ threadRef, ...prompt });
+  });
+
+  // Right-clicking selected code offers Explain; right-clicking a name offers the lookups.
+  // Anywhere else the usual menu stays.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens for context menus on the code under the pointer
   useEffect(() => {
     if (!enabled) return;
     const onContextMenu = (event: MouseEvent) => {
       const hovered = hoveredRef.current;
       const api = readLocalApi();
       if (hovered === null || api === undefined || api === null) return;
-      if (definitionTarget(hovered.token.tokenText) === null) return;
       if (!event.composedPath().includes(hovered.token.tokenElement)) return;
-      if ((window.getSelection()?.toString() ?? "").length > 0) return;
+      const selection = readCodeSelection(event);
+      if (selection === null && definitionTarget(hovered.token.tokenText) === null) return;
       event.preventDefault();
       event.stopPropagation();
       void api.contextMenu
         .show(
-          [
-            { id: "definition", label: gt("Go to Definition") },
-            { id: "references", label: gt("Find All References") },
-          ],
+          selection !== null
+            ? [
+                { id: "explain", label: gt("Explain") },
+                { id: "copy", label: gt("Copy") },
+              ]
+            : [
+                { id: "definition", label: gt("Go to Definition") },
+                { id: "references", label: gt("Find All References") },
+              ],
           { x: event.clientX, y: event.clientY },
           contextMenuSourceOf(event),
         )
         .then((action) => {
           if (action === "definition" || action === "references") {
             startLookup(action, hovered.token, hovered.context);
+          } else if (action === "explain" && selection !== null) {
+            explainSelection(selection, hovered.context);
+          } else if (action === "copy" && selection !== null) {
+            void navigator.clipboard.writeText(selection.text);
           }
         });
     };
     window.addEventListener("contextmenu", onContextMenu, true);
     return () => window.removeEventListener("contextmenu", onContextMenu, true);
-  }, [enabled, gt, startLookup]);
+  }, [enabled, gt, startLookup, explainSelection]);
 
   if (!enabled) {
     return { tokenOptions: {}, picker: null };
