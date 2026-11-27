@@ -186,6 +186,7 @@ export const RPC_REQUIRED_SCOPES = {
   // Starts the project's language server binaries, so it needs the same grant as a terminal.
   [WS_METHODS.codeDefinition]: AuthTerminalOperateScope,
   [WS_METHODS.codeReferences]: AuthTerminalOperateScope,
+  [WS_METHODS.codeHover]: AuthTerminalOperateScope,
   [WS_METHODS.projectsSearchEntries]: AuthFilesystemReadScope,
   [WS_METHODS.projectsWriteFile]: AuthFilesystemWriteScope,
   [WS_METHODS.projectsEnsureScratch]: AuthOrchestrationOperateScope,

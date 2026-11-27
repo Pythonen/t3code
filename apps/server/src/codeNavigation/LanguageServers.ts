@@ -9,6 +9,7 @@ import {
   type CodeDefinitionInput,
   type CodeDefinitionLocation,
   type CodeDefinitionResult,
+  type CodeHoverResult,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -188,6 +189,7 @@ class LanguageServerConnection {
         textDocument: {
           definition: { linkSupport: true },
           references: {},
+          hover: { contentFormat: ["markdown", "plaintext"] },
           synchronization: { didSave: false },
         },
         workspace: { configuration: true, workspaceFolders: true },
@@ -200,7 +202,7 @@ class LanguageServerConnection {
   }
 
   async locate(
-    method: "textDocument/definition" | "textDocument/references",
+    method: "textDocument/definition" | "textDocument/references" | "textDocument/hover",
     absolutePath: string,
     line: number,
     character: number,
@@ -392,6 +394,27 @@ function toLocations(
   return locations;
 }
 
+type MarkedString = string | { readonly language?: string; readonly value?: string };
+
+/** LSP hovers come as MarkupContent, a MarkedString, or a list of them; VS Code rules between parts. */
+function hoverMarkdown(raw: JsonValue): string | null {
+  if (typeof raw !== "object" || raw === null || !("contents" in raw)) return null;
+  const contents = (raw as { contents: unknown }).contents;
+  const part = (value: unknown): string => {
+    if (typeof value === "string") return value;
+    if (typeof value !== "object" || value === null) return "";
+    const entry = value as { kind?: string; language?: string; value?: string };
+    if (typeof entry.value !== "string") return "";
+    if (entry.kind === "plaintext") return entry.value;
+    if (entry.kind === "markdown" || entry.language === undefined) return entry.value;
+    return `\`\`\`${entry.language}\n${entry.value}\n\`\`\``;
+  };
+  const parts = (Array.isArray(contents) ? (contents as ReadonlyArray<MarkedString>) : [contents])
+    .map((value) => part(value).trim())
+    .filter((value) => value.length > 0);
+  return parts.length === 0 ? null : parts.join("\n\n---\n\n");
+}
+
 /** The column where `name` sits on `line`, preferring the requested one; null if it is gone. */
 function locateName(line: string, character: number, name: string): number | null {
   if (line.slice(character, character + name.length) === name) return character;
@@ -411,6 +434,9 @@ export class LanguageServers extends Context.Service<
     readonly references: (
       input: CodeDefinitionInput,
     ) => Effect.Effect<CodeDefinitionResult, CodeDefinitionError>;
+    readonly hover: (
+      input: CodeDefinitionInput,
+    ) => Effect.Effect<CodeHoverResult, CodeDefinitionError>;
   }
 >()("t3/codeNavigation/LanguageServers") {}
 
@@ -434,57 +460,91 @@ const make = Effect.gen(function* () {
     return connection;
   };
 
+  const toError = (message: string) => (cause: unknown) =>
+    new CodeDefinitionError({ message, cause });
+
+  /** Validates the request and finds its server; `status` set means there is nothing to ask. */
+  const prepare = Effect.fn("LanguageServers.prepare")(function* (input: CodeDefinitionInput) {
+    const workspaceRoot = yield* workspacePaths
+      .normalizeWorkspaceRoot(input.cwd)
+      .pipe(Effect.mapError(toError("The workspace is not available.")));
+    const { absolutePath } = yield* workspacePaths
+      .resolveRelativePathWithinRoot({ workspaceRoot, relativePath: input.relativePath })
+      .pipe(Effect.mapError(toError("The file is outside the workspace.")));
+    const spec = resolveServerSpec(workspaceRoot, absolutePath);
+    if (spec === null) return { status: "unsupported" as const };
+    const lineText = yield* Effect.try({
+      try: () => NodeFS.readFileSync(absolutePath, "utf8").split("\n")[input.line - 1] ?? "",
+      catch: toError("The file could not be read."),
+    });
+    const character = locateName(lineText, input.character, input.name);
+    if (character === null) return { status: "stale" as const };
+    return {
+      status: null,
+      workspaceRoot,
+      absolutePath,
+      spec,
+      character,
+      connection: connectionFor(spec),
+    };
+  });
+
+  const ask = (
+    method: "textDocument/definition" | "textDocument/references" | "textDocument/hover",
+    target: { absolutePath: string; character: number; connection: LanguageServerConnection },
+    line: number,
+  ) =>
+    Effect.tryPromise({
+      try: () => target.connection.locate(method, target.absolutePath, line - 1, target.character),
+      catch: (cause) =>
+        new CodeDefinitionError({
+          message: cause instanceof Error ? cause.message : "The language server failed.",
+          cause,
+        }),
+    });
+
   const lookup = (kind: "definition" | "references") =>
     Effect.fn(`LanguageServers.${kind}`)(function* (input: CodeDefinitionInput) {
-      const toError = (message: string) => (cause: unknown) =>
-        new CodeDefinitionError({ message, cause });
-      const workspaceRoot = yield* workspacePaths
-        .normalizeWorkspaceRoot(input.cwd)
-        .pipe(Effect.mapError(toError("The workspace is not available.")));
-      const { absolutePath } = yield* workspacePaths
-        .resolveRelativePathWithinRoot({ workspaceRoot, relativePath: input.relativePath })
-        .pipe(Effect.mapError(toError("The file is outside the workspace.")));
-      const spec = resolveServerSpec(workspaceRoot, absolutePath);
-      if (spec === null)
-        return { status: "unsupported", locations: [] } satisfies CodeDefinitionResult;
-      const lineText = yield* Effect.try({
-        try: () => NodeFS.readFileSync(absolutePath, "utf8").split("\n")[input.line - 1] ?? "",
-        catch: toError("The file could not be read."),
-      });
-      const character = locateName(lineText, input.character, input.name);
-      if (character === null)
-        return { status: "stale", locations: [] } satisfies CodeDefinitionResult;
-      const connection = connectionFor(spec);
-      const raw = yield* Effect.tryPromise({
-        try: () =>
-          connection.locate(
-            kind === "definition" ? "textDocument/definition" : "textDocument/references",
-            absolutePath,
-            input.line - 1,
-            character,
-          ),
-        catch: (cause) =>
-          new CodeDefinitionError({
-            message: cause instanceof Error ? cause.message : "The language server failed.",
-            cause,
-          }),
-      });
+      const target = yield* prepare(input);
+      if (target.status !== null)
+        return { status: target.status, locations: [] } satisfies CodeDefinitionResult;
+      const raw = yield* ask(
+        kind === "definition" ? "textDocument/definition" : "textDocument/references",
+        target,
+        input.line,
+      );
       const now = yield* Clock.currentTimeMillis;
       return {
         status: "ok",
         locations: toLocations(
-          workspaceRoot,
+          target.workspaceRoot,
           raw,
           kind === "definition" ? MAX_DEFINITIONS : MAX_REFERENCES,
         ),
-        server: spec.label,
-        ...(kind === "references" && now - connection.startedAt < INDEXING_GRACE_MS
+        server: target.spec.label,
+        ...(kind === "references" && now - target.connection.startedAt < INDEXING_GRACE_MS
           ? { partial: true }
           : {}),
       } satisfies CodeDefinitionResult;
     });
 
-  return LanguageServers.of({ definition: lookup("definition"), references: lookup("references") });
+  const hover = Effect.fn("LanguageServers.hover")(function* (input: CodeDefinitionInput) {
+    const target = yield* prepare(input);
+    if (target.status !== null)
+      return { status: target.status, markdown: null } satisfies CodeHoverResult;
+    const raw = yield* ask("textDocument/hover", target, input.line);
+    return {
+      status: "ok",
+      markdown: hoverMarkdown(raw),
+      server: target.spec.label,
+    } satisfies CodeHoverResult;
+  });
+
+  return LanguageServers.of({
+    definition: lookup("definition"),
+    references: lookup("references"),
+    hover,
+  });
 });
 
 export const layer = Layer.effect(LanguageServers, make);

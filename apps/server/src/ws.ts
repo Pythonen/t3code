@@ -3125,6 +3125,7 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.codeDefinition]: (input) => languageServers.definition(input),
         [WS_METHODS.codeReferences]: (input) => languageServers.references(input),
+        [WS_METHODS.codeHover]: (input) => languageServers.hover(input),
         [WS_METHODS.projectsSearchContents]: (input) =>
           workspaceEntries.searchContents(input).pipe(
             Effect.mapError(

@@ -13,6 +13,7 @@ import { readLocalApi } from "~/localApi";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { codeDefinition, codeReferences, projectContentSearch } from "~/state/projects";
 
+import { CodeHoverCard, type HoverTarget } from "./CodeHoverCard";
 import { type CodeLocation, CodePeek, inWorkspace } from "./CodePeek";
 import { explainPrompt, requestExplain } from "./explainSelection";
 import { useEnvironmentQuery } from "~/state/query";
@@ -190,6 +191,8 @@ interface TokenEvent {
 }
 
 const REFERENCES_SEARCH_LIMIT = 300;
+const HOVER_DELAY_MS = 500;
+const HOVER_HIDE_DELAY_MS = 200;
 const INDEXING_REFRESH_MS = 3_000;
 const INDEXING_REFRESH_ATTEMPTS = 5;
 
@@ -210,6 +213,44 @@ export function useGoToDefinition(input: {
   const hoveredRef = useRef<{ readonly token: TokenEvent; readonly context: unknown } | null>(null);
   const { threadRef, environmentId, cwd } = input;
   const enabled = input.enabled && threadRef !== null && environmentId !== null && cwd !== null;
+  const [hover, setHover] = useState<HoverTarget | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelHide = useStableCallback(() => {
+    if (hideTimerRef.current !== null) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = null;
+  });
+  const scheduleHide = useStableCallback(() => {
+    if (hoverTimerRef.current !== null) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = null;
+    cancelHide();
+    hideTimerRef.current = setTimeout(() => setHover(null), HOVER_HIDE_DELAY_MS);
+  });
+  const hideNow = useStableCallback(() => {
+    if (hoverTimerRef.current !== null) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = null;
+    cancelHide();
+    setHover(null);
+  });
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a hover card follows the pointer; Escape, scrolling, clicks and unmount dismiss it
+  useEffect(() => {
+    if (hover === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") hideNow();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("scroll", hideNow, true);
+    window.addEventListener("pointerdown", hideNow, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("scroll", hideNow, true);
+      window.removeEventListener("pointerdown", hideNow, true);
+    };
+  }, [hover, hideNow]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pending hover timers must not fire after the view unmounts
+  useEffect(() => hideNow, [hideNow]);
 
   const startLookup = useStableCallback(
     (mode: DefinitionLookup["mode"], token: TokenEvent, context: unknown) => {
@@ -289,11 +330,33 @@ export function useGoToDefinition(input: {
   const tokenOptions = {
     onTokenEnter: (token: TokenEvent, event: PointerEvent, context?: unknown) => {
       hoveredRef.current = { token, context };
-      if (!isNavigationClick(event) || definitionTarget(token.tokenText) === null) return;
-      token.tokenElement.style.textDecoration = "underline";
-      token.tokenElement.style.cursor = "pointer";
+      const name = definitionTarget(token.tokenText);
+      if (name === null) return;
+      if (isNavigationClick(event)) {
+        token.tokenElement.style.textDecoration = "underline";
+        token.tokenElement.style.cursor = "pointer";
+        return;
+      }
+      // Hover: the language server's signature and docs after the pointer rests on a name.
+      const sourcePath = sourcePathOf(context) ?? input.sourcePath ?? null;
+      if (sourcePath === null || token.side === "deletions") return;
+      cancelHide();
+      if (hoverTimerRef.current !== null) clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = setTimeout(() => {
+        hoverTimerRef.current = null;
+        if ((window.getSelection()?.toString() ?? "").length > 0) return;
+        const rect = token.tokenElement.getBoundingClientRect();
+        setHover({
+          name,
+          sourcePath,
+          line: token.lineNumber,
+          character: token.lineCharStart,
+          rect: { left: rect.left, top: rect.top, bottom: rect.bottom },
+        });
+      }, HOVER_DELAY_MS);
     },
     onTokenLeave: (token: TokenEvent) => {
+      scheduleHide();
       if (hoveredRef.current?.token.tokenElement === token.tokenElement) hoveredRef.current = null;
       token.tokenElement.style.removeProperty("text-decoration");
       token.tokenElement.style.removeProperty("cursor");
@@ -301,6 +364,7 @@ export function useGoToDefinition(input: {
     onTokenClick: (token: TokenEvent, event: MouseEvent, context?: unknown) => {
       if (!isNavigationClick(event) || definitionTarget(token.tokenText) === null) return;
       event.preventDefault();
+      hideNow();
       startLookup(event.shiftKey ? "references" : "definition", token, context);
     },
   };
@@ -315,14 +379,32 @@ export function useGoToDefinition(input: {
           cwd,
           onClose: () => setLookup(null),
         };
+  const lookupPanel =
+    panelProps === null ? null : panelProps.lookup.mode === "references" ? (
+      <ReferencesPeek key={`${lookup!.name}:${lookup!.x}:${lookup!.y}`} {...panelProps} />
+    ) : (
+      <DefinitionPicker key={`${lookup!.name}:${lookup!.x}:${lookup!.y}`} {...panelProps} />
+    );
+  const hoverCard =
+    hover === null || lookup !== null ? null : (
+      <CodeHoverCard
+        key={`${hover.sourcePath}:${hover.line}:${hover.character}`}
+        target={hover}
+        environmentId={environmentId}
+        cwd={cwd}
+        threadRef={threadRef}
+        onPointerEnter={cancelHide}
+        onPointerLeave={scheduleHide}
+      />
+    );
   return {
     tokenOptions,
-    picker:
-      panelProps === null ? null : panelProps.lookup.mode === "references" ? (
-        <ReferencesPeek key={`${lookup!.name}:${lookup!.x}:${lookup!.y}`} {...panelProps} />
-      ) : (
-        <DefinitionPicker key={`${lookup!.name}:${lookup!.x}:${lookup!.y}`} {...panelProps} />
-      ),
+    picker: (
+      <>
+        {hoverCard}
+        {lookupPanel}
+      </>
+    ),
   };
 }
 

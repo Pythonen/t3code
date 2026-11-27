@@ -26,6 +26,13 @@ export const codeDefinition = createEnvironmentRpcQueryAtomFamily(connectionAtom
   staleTimeMs: 0,
   idleTtlMs: 0,
 });
+// Hovering the same spot again within half a minute reuses the answer.
+export const codeHover = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+  label: "environment-data:code:hover",
+  tag: WS_METHODS.codeHover,
+  staleTimeMs: 30_000,
+  idleTtlMs: 30_000,
+});
 export const codeReferences = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
   label: "environment-data:code:references",
   tag: WS_METHODS.codeReferences,

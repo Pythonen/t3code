@@ -34,6 +34,14 @@ export const CodeDefinitionResult = Schema.Struct({
 });
 export type CodeDefinitionResult = typeof CodeDefinitionResult.Type;
 
+export const CodeHoverResult = Schema.Struct({
+  status: Schema.Literals(["ok", "unsupported", "stale"]),
+  /** The language server's hover as markdown: the signature in a code block, then its docs. */
+  markdown: Schema.NullOr(Schema.String),
+  server: Schema.optional(TrimmedNonEmptyString),
+});
+export type CodeHoverResult = typeof CodeHoverResult.Type;
+
 export class CodeDefinitionError extends Schema.TaggedError<CodeDefinitionError>()(
   "CodeDefinitionError",
   {

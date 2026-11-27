@@ -2,6 +2,7 @@ import {
   CodeDefinitionError,
   CodeDefinitionInput,
   CodeDefinitionResult,
+  CodeHoverResult,
 } from "./codeNavigation.ts";
 import {
   OrchestrationV2SearchThreadError,
@@ -502,6 +503,7 @@ export const WS_METHODS = {
   projectsSearchContents: "projects.searchContents",
   codeDefinition: "code.definition",
   codeReferences: "code.references",
+  codeHover: "code.hover",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
   projectsMutate: "projects.mutate",
@@ -1674,6 +1676,12 @@ const WsCodeReferencesRpc = Rpc.make(WS_METHODS.codeReferences, {
   error: Schema.Union([CodeDefinitionError, EnvironmentAuthorizationError]),
 });
 
+const WsCodeHoverRpc = Rpc.make(WS_METHODS.codeHover, {
+  payload: CodeDefinitionInput,
+  success: CodeHoverResult,
+  error: Schema.Union([CodeDefinitionError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsListEntriesRpc = Rpc.make(WS_METHODS.projectsListEntries, {
   payload: ProjectListEntriesInput,
   success: ProjectListEntriesResult,
@@ -2675,6 +2683,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsSearchContentsRpc,
   WsCodeDefinitionRpc,
   WsCodeReferencesRpc,
+  WsCodeHoverRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsEnsureScratchRpc,
   WsProjectsCreateNewRpc,
