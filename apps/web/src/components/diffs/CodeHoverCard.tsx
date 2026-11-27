@@ -53,6 +53,7 @@ export function CodeHoverCard(props: {
   return (
     <div
       role="tooltip"
+      data-code-hover-card=""
       className="fixed z-50 overflow-auto rounded-md border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-lg"
       style={{
         left,

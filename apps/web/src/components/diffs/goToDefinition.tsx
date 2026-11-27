@@ -192,7 +192,8 @@ interface TokenEvent {
 
 const REFERENCES_SEARCH_LIMIT = 300;
 const HOVER_DELAY_MS = 500;
-const HOVER_HIDE_DELAY_MS = 200;
+const HOVER_HIDE_DELAY_MS = 300;
+const HOVER_CARD_SELECTOR = "[data-code-hover-card]";
 const INDEXING_REFRESH_MS = 3_000;
 const INDEXING_REFRESH_ATTEMPTS = 5;
 
@@ -216,6 +217,7 @@ export function useGoToDefinition(input: {
   const [hover, setHover] = useState<HoverTarget | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointerInCardRef = useRef(false);
 
   const cancelHide = useStableCallback(() => {
     if (hideTimerRef.current !== null) clearTimeout(hideTimerRef.current);
@@ -225,28 +227,43 @@ export function useGoToDefinition(input: {
     if (hoverTimerRef.current !== null) clearTimeout(hoverTimerRef.current);
     hoverTimerRef.current = null;
     cancelHide();
+    // The diff reports leaving a name after the card has already seen the pointer enter it.
+    if (pointerInCardRef.current) return;
     hideTimerRef.current = setTimeout(() => setHover(null), HOVER_HIDE_DELAY_MS);
   });
   const hideNow = useStableCallback(() => {
     if (hoverTimerRef.current !== null) clearTimeout(hoverTimerRef.current);
     hoverTimerRef.current = null;
     cancelHide();
+    pointerInCardRef.current = false;
     setHover(null);
   });
+  const onCardPointerEnter = useStableCallback(() => {
+    pointerInCardRef.current = true;
+    cancelHide();
+  });
+  const onCardPointerLeave = useStableCallback(() => {
+    pointerInCardRef.current = false;
+    scheduleHide();
+  });
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a hover card follows the pointer; Escape, scrolling, clicks and unmount dismiss it
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a hover card follows the pointer; Escape, scrolling and clicks outside it, and unmount dismiss it
   useEffect(() => {
     if (hover === null) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") hideNow();
     };
+    const onOutside = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest(HOVER_CARD_SELECTOR)) return;
+      hideNow();
+    };
     window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("scroll", hideNow, true);
-    window.addEventListener("pointerdown", hideNow, true);
+    window.addEventListener("scroll", onOutside, true);
+    window.addEventListener("pointerdown", onOutside, true);
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("scroll", hideNow, true);
-      window.removeEventListener("pointerdown", hideNow, true);
+      window.removeEventListener("scroll", onOutside, true);
+      window.removeEventListener("pointerdown", onOutside, true);
     };
   }, [hover, hideNow]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pending hover timers must not fire after the view unmounts
@@ -393,8 +410,8 @@ export function useGoToDefinition(input: {
         environmentId={environmentId}
         cwd={cwd}
         threadRef={threadRef}
-        onPointerEnter={cancelHide}
-        onPointerLeave={scheduleHide}
+        onPointerEnter={onCardPointerEnter}
+        onPointerLeave={onCardPointerLeave}
       />
     );
   return {
